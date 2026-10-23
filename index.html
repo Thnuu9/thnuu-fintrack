@@ -40,6 +40,22 @@ tailwind.config = { theme: { extend: { colors: {
 </style>
 </head>
 <body>
+<div id="authPanel" class="min-h-screen flex items-center justify-center p-4">
+  <div class="panel w-full max-w-md p-6">
+    <h1 class="text-2xl font-bold mb-2">FinTrack Login</h1>
+    <p class="text-sm muted mb-5">เข้าสู่ระบบเพื่อซิงก์ข้อมูลระหว่างคอมและมือถือ</p>
+    <label class="label" for="authEmail">อีเมล</label>
+    <input class="field mb-3" id="authEmail" type="email" autocomplete="email" placeholder="you@example.com">
+    <label class="label" for="authPassword">รหัสผ่าน</label>
+    <input class="field mb-4" id="authPassword" type="password" autocomplete="current-password" placeholder="อย่างน้อย 6 ตัวอักษร">
+    <div class="flex flex-wrap gap-2">
+      <button class="btn btn-primary" id="loginBtn" type="button">เข้าสู่ระบบ</button>
+      <button class="btn btn-secondary" id="signupBtn" type="button">สร้างบัญชี</button>
+    </div>
+    <p id="authMessage" class="text-sm mt-4 muted">ตั้งค่า Supabase URL และ publishable/anon key ในไฟล์ก่อนใช้งาน</p>
+  </div>
+</div>
+<div id="appRoot" class="hidden">
 <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
   <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-7">
     <div>
@@ -51,7 +67,7 @@ tailwind.config = { theme: { extend: { colors: {
       <p class="text-sm text-slate-400 mt-2">ติดตามเงินทุน ผลตอบแทน และประสิทธิภาพของแต่ละรายการในที่เดียว</p>
     </div>
     <div class="flex items-center gap-2 text-xs text-slate-400 border border-slate-700 rounded-xl px-3 py-2 bg-slate-900/60 self-start md:self-auto">
-      <span class="w-2 h-2 rounded-full bg-emerald-400"></span> บันทึกในเบราว์เซอร์ด้วย LocalStorage
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span> ซิงก์ข้อมูลออนไลน์ผ่าน Supabase <button id="logoutBtn" class="underline ml-2" type="button">ออกจากระบบ</button>
     </div>
   </header>
 
@@ -104,7 +120,7 @@ tailwind.config = { theme: { extend: { colors: {
       <div id="emptyState" class="text-center py-12 px-4"><div class="text-3xl mb-3">⌁</div><p class="font-semibold text-slate-300">ยังไม่มีรายการธุรกรรม</p><p class="text-sm muted mt-1">เพิ่มรายการแรกจากฟอร์มด้านบน หรือโหลดข้อมูลตัวอย่าง</p></div>
     </div>
     <div class="p-4 border-t border-slate-800 flex flex-col sm:flex-row gap-2 justify-between items-start sm:items-center">
-      <p class="text-xs muted">ข้อมูลเก็บอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น</p>
+      <p class="text-xs muted">ข้อมูลซิงก์กับบัญชีออนไลน์ที่เข้าสู่ระบบ</p>
       <div class="flex gap-2"><button id="exportBtn" class="btn btn-secondary text-sm">ส่งออก CSV</button><button id="clearBtn" class="btn btn-secondary text-sm">ลบข้อมูลทั้งหมด</button></div>
     </div>
   </section>
@@ -114,19 +130,85 @@ tailwind.config = { theme: { extend: { colors: {
     <p class="mt-1">เครื่องมือนี้เป็นตัวติดตามข้อมูล ไม่ใช่คำแนะนำการลงทุน และไม่ได้เชื่อมต่อบัญชีการเงินจริง ควรสำรองข้อมูล CSV หากต้องการเก็บไว้ระยะยาว</p>
   </footer>
 </div>
+</div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+const SUPABASE_URL = "PASTE_YOUR_SUPABASE_PROJECT_URL_HERE";
+const SUPABASE_KEY = "PASTE_YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY_HERE";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const STORAGE_KEY = 'fintrack_transactions_v1';
 const $ = id => document.getElementById(id);
 const money = n => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n)||0);
 const number = n => new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(Number(n)||0);
 const outcomeLabels = {'full-win':'รับคืนเต็มจำนวน','half-win':'รับคืนครึ่งหนึ่ง','break-even':'เสมอ / คืนทุน','half-loss':'สูญเสียครึ่งหนึ่ง','full-loss':'สูญเสียเต็มจำนวน'};
-let transactions = loadTransactions();
+let transactions = [];
 let editingId = null;
 let charts = {};
+let currentUser = null;
+let syncBusy = false;
 
-function loadTransactions(){ try { const x=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]'); return Array.isArray(x)?x:[]; } catch(e){ return []; } }
-function persist(){ try { localStorage.setItem(STORAGE_KEY,JSON.stringify(transactions)); } catch(e){ alert('บันทึก LocalStorage ไม่สำเร็จ พื้นที่จัดเก็บอาจเต็ม'); } }
+function loadTransactions(){ return []; }
+async function persist(){
+  if (!currentUser || syncBusy) return;
+  syncBusy = true;
+  try {
+    const { error: delError } = await supabaseClient.from('transactions').delete().eq('user_id', currentUser.id);
+    if (delError) throw delError;
+    if (transactions.length) {
+      const rows = transactions.map(t => ({
+        id: t.id, user_id: currentUser.id, transaction_date: t.date,
+        category: t.category, principal: t.capital, multiplier: t.multiplier,
+        outcome: t.outcome, profit_loss: t.pnl, notes: t.notes || ''
+      }));
+      const { error: insertError } = await supabaseClient.from('transactions').insert(rows);
+      if (insertError) throw insertError;
+    }
+  } catch (err) {
+    console.error(err);
+    alert('ซิงก์ข้อมูลไม่สำเร็จ: ' + (err.message || 'ตรวจสอบการตั้งค่า Supabase'));
+  } finally { syncBusy = false; }
+}
+async function loadCloudTransactions(){
+  const { data, error } = await supabaseClient.from('transactions')
+    .select('*').eq('user_id', currentUser.id).order('transaction_date', { ascending: true });
+  if (error) throw error;
+  transactions = (data || []).map(r => ({
+    id: r.id, date: r.transaction_date, category: r.category,
+    capital: Number(r.principal), multiplier: Number(r.multiplier || 1),
+    outcome: r.outcome || 'break-even', pnl: Number(r.profit_loss),
+    notes: r.notes || ''
+  }));
+}
+function showApp(){
+  $('authPanel').classList.add('hidden');
+  $('appRoot').classList.remove('hidden');
+  render();
+}
+async function authenticate(mode){
+  const email = $('authEmail').value.trim(), password = $('authPassword').value;
+  if (!email || password.length < 6) { $('authMessage').textContent='ใส่อีเมลและรหัสผ่านอย่างน้อย 6 ตัวอักษร'; return; }
+  $('authMessage').textContent='กำลังดำเนินการ...';
+  const result = mode === 'signup'
+    ? await supabaseClient.auth.signUp({email, password})
+    : await supabaseClient.auth.signInWithPassword({email, password});
+  if (result.error) { $('authMessage').textContent=result.error.message; return; }
+  if (mode === 'signup' && !result.data.session) {
+    $('authMessage').textContent='สร้างบัญชีแล้ว โปรดตรวจอีเมลเพื่อยืนยัน จากนั้นกลับมาเข้าสู่ระบบ'; return;
+  }
+  $('authMessage').textContent='สำเร็จ กำลังโหลดข้อมูล...';
+}
+$('loginBtn').addEventListener('click',()=>authenticate('login'));
+$('signupBtn').addEventListener('click',()=>authenticate('signup'));
+$('logoutBtn').addEventListener('click',async()=>{await supabaseClient.auth.signOut();});
+supabaseClient.auth.onAuthStateChange((_event, session) => {
+  setTimeout(async () => {
+    if (!session) { currentUser=null; $('appRoot').classList.add('hidden'); $('authPanel').classList.remove('hidden'); return; }
+    currentUser=session.user;
+    try { await loadCloudTransactions(); showApp(); }
+    catch(err) { $('authMessage').textContent='โหลดข้อมูลไม่สำเร็จ: '+err.message; }
+  }, 0);
+});
 function calcPnl(capital,multiplier,outcome){
   const c=Number(capital)||0, m=Number(multiplier)||0;
   switch(outcome){case 'full-win':return c*(m-1);case 'half-win':return c*(m-1)/2;case 'break-even':return 0;case 'half-loss':return -c*0.5;case 'full-loss':return -c;default:return 0;}
@@ -198,7 +280,7 @@ $('entryForm').addEventListener('submit',e=>{
   e.preventDefault();
   const capital=Number($('capital').value), multiplier=Number($('multiplier').value), date=new Date($('date').value);
   if(!Number.isFinite(capital)||capital<=0||!Number.isFinite(multiplier)||multiplier<0||Number.isNaN(date.getTime())){alert('กรุณาตรวจสอบวันที่ เงินต้น และตัวคูณ');return;}
-  const item={id:editingId||`${Date.now()}_${Math.random().toString(36).slice(2,8)}`,date:date.toISOString(),category:$('category').value.trim(),capital,multiplier,outcome:$('outcome').value,pnl:calcPnl(capital,multiplier,$('outcome').value),notes:$('notes').value.trim()};
+  const item={id:editingId||crypto.randomUUID(),date:date.toISOString(),category:$('category').value.trim(),capital,multiplier,outcome:$('outcome').value,pnl:calcPnl(capital,multiplier,$('outcome').value),notes:$('notes').value.trim()};
   if(!item.category){alert('กรุณาระบุหมวดหมู่');return;}
   if(editingId)transactions=transactions.map(t=>t.id===editingId?item:t);else transactions.push(item);
   persist();resetForm();render();
@@ -225,7 +307,7 @@ $('demoBtn').addEventListener('click',()=>{
     ['หมวด A',100,1.85,'half-win','ลดความเสี่ยง',-4],['หมวด C',90,.95,'full-loss','เงื่อนไขไม่เป็นไปตามแผน',-3],
     ['หมวด D',75,1.9,'break-even','คืนทุนตามแผน',-2],['หมวด B',110,2.05,'full-win','สัญญาณยืนยัน',-1],['หมวด C',60,1.8,'half-loss','ปิดบางส่วน',0]
   ];
-  samples.forEach(([category,capital,multiplier,outcome,notes,days])=>{const d=new Date();d.setDate(d.getDate()+days);d.setHours(10+Math.abs(days)%8,15,0,0);transactions.push({id:`demo_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,date:d.toISOString(),category,capital,multiplier,outcome,notes,pnl:calcPnl(capital,multiplier,outcome)});});
+  samples.forEach(([category,capital,multiplier,outcome,notes,days])=>{const d=new Date();d.setDate(d.getDate()+days);d.setHours(10+Math.abs(days)%8,15,0,0);transactions.push({id:crypto.randomUUID(),date:d.toISOString(),category,capital,multiplier,outcome,notes,pnl:calcPnl(capital,multiplier,outcome)});});
   persist();render();
 });
 $('clearBtn').addEventListener('click',()=>{if(confirm('ลบธุรกรรมทั้งหมดออกจากเบราว์เซอร์ใช่หรือไม่? การกระทำนี้ย้อนกลับไม่ได้')){transactions=[];persist();resetForm();render();}});
@@ -235,7 +317,7 @@ $('exportBtn').addEventListener('click',()=>{
   const csv=[headers,...transactions.map(t=>[t.date,t.category,t.capital,t.multiplier,outcomeLabels[t.outcome],t.pnl,t.notes||''])].map(row=>row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='fintrack-transactions.csv';a.click();URL.revokeObjectURL(url);
 });
-$('date').value=toLocalInput(new Date()); updatePreview(); render();
+$('date').value=toLocalInput(new Date()); updatePreview();
 </script>
 </body>
 </html>
