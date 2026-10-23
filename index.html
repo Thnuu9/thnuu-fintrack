@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FinTrack — Personal Financial Performance</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+tailwind.config = { theme: { extend: { colors: {
+  ink:'#0b1020', panel:'#111827', line:'#263244', muted:'#94a3b8',
+  accent:'#60a5fa', gain:'#34d399', loss:'#fb7185', flat:'#fbbf24'
+}}}};
+</script>
+<style>
+  * { box-sizing:border-box }
+  body { background:#0b1020; color:#e5e7eb; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif }
+  input,select,textarea { color-scheme:dark }
+  .panel { background:linear-gradient(145deg,#121a2a,#0f1725); border:1px solid #263244; border-radius:16px }
+  .field { width:100%; background:#0b1220; border:1px solid #334155; border-radius:9px; padding:10px 12px; outline:none; min-height:42px }
+  .field:focus { border-color:#60a5fa; box-shadow:0 0 0 2px #60a5fa22 }
+  .label { display:block; font-size:12px; color:#9ca3af; margin-bottom:6px; font-weight:600 }
+  .btn { border-radius:9px; padding:10px 14px; font-weight:700; transition:.15s; cursor:pointer }
+  .btn-primary { background:#3b82f6; color:white } .btn-primary:hover { background:#2563eb }
+  .btn-secondary { background:#1e293b; color:#dbeafe; border:1px solid #334155 } .btn-secondary:hover { background:#29384d }
+  .kpi-value { font-size:clamp(20px,2.2vw,29px); font-weight:750; letter-spacing:-.04em; margin-top:9px; overflow-wrap:anywhere }
+  .kpi-label { color:#9ca3af; font-size:12px; font-weight:650; letter-spacing:.04em; text-transform:uppercase }
+  .positive { color:#34d399 } .negative { color:#fb7185 } .neutral { color:#fbbf24 }
+  .table-wrap { overflow-x:auto } table { width:100%; border-collapse:collapse; min-width:850px }
+  th { color:#94a3b8; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.06em; padding:12px 14px; background:#0d1523; white-space:nowrap }
+  td { padding:13px 14px; border-top:1px solid #202b3b; font-size:13px; vertical-align:top }
+  tbody tr:hover { background:#ffffff05 }
+  .pill { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; font-size:11px; font-weight:700; white-space:nowrap }
+  .pill-gain { background:#064e3b66; color:#6ee7b7; border:1px solid #065f46 }
+  .pill-loss { background:#88133755; color:#fda4af; border:1px solid #9f1239 }
+  .pill-flat { background:#78350f55; color:#fcd34d; border:1px solid #92400e }
+  .chart-box { height:270px; position:relative }
+  .muted { color:#94a3b8 }
+  @media(max-width:640px) { .chart-box {height:230px} .field {font-size:14px} }
+</style>
+</head>
+<body>
+<div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+  <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-7">
+    <div>
+      <div class="flex items-center gap-3 mb-2">
+        <div class="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-400/30 flex items-center justify-center text-blue-300 font-black text-lg">F</div>
+        <span class="text-xs uppercase tracking-[.22em] text-blue-300 font-bold">Personal Finance Workspace</span>
+      </div>
+      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">Financial Performance <span class="text-slate-400">& Portfolio Tracker</span></h1>
+      <p class="text-sm text-slate-400 mt-2">ติดตามเงินทุน ผลตอบแทน และประสิทธิภาพของแต่ละรายการในที่เดียว</p>
+    </div>
+    <div class="flex items-center gap-2 text-xs text-slate-400 border border-slate-700 rounded-xl px-3 py-2 bg-slate-900/60 self-start md:self-auto">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span> บันทึกในเบราว์เซอร์ด้วย LocalStorage
+    </div>
+  </header>
+
+  <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mb-5">
+    <div class="panel p-4"><div class="kpi-label">Total Capital Invested</div><div id="kpiCapital" class="kpi-value">$0.00</div><div class="text-xs muted mt-2">เงินต้นรวมทุกธุรกรรม</div></div>
+    <div class="panel p-4"><div class="kpi-label">Net PnL</div><div id="kpiPnl" class="kpi-value">$0.00</div><div id="kpiRoi" class="text-xs muted mt-2">ROI 0.00%</div></div>
+    <div class="panel p-4"><div class="kpi-label">Win Rate</div><div id="kpiWin" class="kpi-value">0.0%</div><div id="kpiRecord" class="text-xs muted mt-2">ชนะ 0 · แพ้ 0 · เสมอ 0</div></div>
+    <div class="panel p-4"><div class="kpi-label">Profit Factor</div><div id="kpiPF" class="kpi-value">—</div><div class="text-xs muted mt-2">กำไรรวม ÷ ขาดทุนรวม</div></div>
+    <div class="panel p-4"><div class="kpi-label">Current Streak</div><div id="kpiStreak" class="kpi-value">0</div><div id="kpiStreakLabel" class="text-xs muted mt-2">ยังไม่มีรายการ</div></div>
+  </section>
+
+  <section class="panel p-4 sm:p-5 mb-5">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
+      <div><h2 class="font-bold text-lg" id="formHeading">บันทึกรายการใหม่</h2><p class="text-xs text-slate-400 mt-1">กำไร/ขาดทุนคำนวณอัตโนมัติตามสถานะและตัวคูณ</p></div>
+      <span id="editBadge" class="hidden text-xs text-amber-300 bg-amber-400/10 px-3 py-1.5 rounded-lg">กำลังแก้ไขรายการ</span>
+    </div>
+    <form id="entryForm" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div><label class="label" for="date">วันที่และเวลา</label><input class="field" id="date" type="datetime-local" required></div>
+      <div><label class="label" for="category">หมวดหมู่ / กลุ่มตลาด</label><input class="field" id="category" list="categoryOptions" placeholder="เลือกหรือพิมพ์หมวดหมู่" required><datalist id="categoryOptions"><option value="หมวด A"><option value="หมวด B"><option value="หมวด C"><option value="หมวด D"></datalist></div>
+      <div><label class="label" for="capital">เงินต้น ($)</label><input class="field" id="capital" type="number" min="0.01" step="0.01" placeholder="เช่น 100" required></div>
+      <div><label class="label" for="multiplier">ตัวคูณผลตอบแทน</label><input class="field" id="multiplier" type="number" min="0" step="0.01" value="1.85" required></div>
+      <div><label class="label" for="outcome">สถานะผลลัพธ์</label><select class="field" id="outcome" required><option value="full-win">รับคืนเต็มจำนวน</option><option value="half-win">รับคืนครึ่งหนึ่ง</option><option value="break-even">เสมอ / คืนทุน</option><option value="half-loss">สูญเสียครึ่งหนึ่ง</option><option value="full-loss">สูญเสียเต็มจำนวน</option></select></div>
+      <div><label class="label" for="pnlPreview">กำไร/ขาดทุน ($)</label><input class="field opacity-80" id="pnlPreview" type="text" value="$0.00" readonly><p class="text-[11px] muted mt-1">ค่าที่คำนวณได้ ไม่สามารถแก้ไขโดยตรง</p></div>
+      <div class="sm:col-span-2"><label class="label" for="notes">บันทึกเพิ่มเติม / กลยุทธ์</label><input class="field" id="notes" type="text" maxlength="500" placeholder="บันทึกเหตุผลหรือข้อสังเกต..."></div>
+      <div class="sm:col-span-2 lg:col-span-4 flex flex-col sm:flex-row gap-2 pt-1">
+        <button class="btn btn-primary" id="saveBtn" type="submit">＋ เพิ่มรายการ</button>
+        <button class="btn btn-secondary hidden" id="cancelEdit" type="button">ยกเลิกการแก้ไข</button>
+        <button class="btn btn-secondary" id="demoBtn" type="button">โหลดข้อมูลตัวอย่าง</button>
+        <span class="text-xs muted self-center sm:ml-auto">สูตร PnL แสดงไว้ด้านล่างของหน้า</span>
+      </div>
+    </form>
+  </section>
+
+  <section class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+    <div class="panel p-4 sm:p-5"><div class="mb-4"><h2 class="font-bold">Cumulative Equity Curve</h2><p class="text-xs muted mt-1">ยอดสะสมจากกำไร/ขาดทุนตามลำดับเวลา</p></div><div class="chart-box"><canvas id="equityChart"></canvas></div></div>
+    <div class="panel p-4 sm:p-5"><div class="mb-4"><h2 class="font-bold">Daily PnL Distribution</h2><p class="text-xs muted mt-1">ผลรวมกำไร/ขาดทุนแยกตามวัน</p></div><div class="chart-box"><canvas id="dailyChart"></canvas></div></div>
+    <div class="panel p-4 sm:p-5 xl:col-span-2"><div class="mb-4"><h2 class="font-bold">Category Performance Breakdown</h2><p class="text-xs muted mt-1">สัดส่วนกำไร/ขาดทุนสุทธิแยกตามหมวดหมู่</p></div><div class="chart-box max-w-2xl mx-auto"><canvas id="categoryChart"></canvas></div></div>
+  </section>
+
+  <section class="panel overflow-hidden">
+    <div class="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div><h2 class="font-bold text-lg">ประวัติธุรกรรม</h2><p class="text-xs muted mt-1" id="rowCount">0 รายการ</p></div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full lg:max-w-xl">
+        <input id="searchInput" class="field" type="search" placeholder="ค้นหาหมวดหมู่หรือบันทึก...">
+        <select id="filterOutcome" class="field"><option value="all">ทุกสถานะ</option><option value="profit">เฉพาะกำไร</option><option value="loss">เฉพาะขาดทุน</option><option value="flat">เฉพาะคืนทุน</option></select>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr><th>วันที่ / เวลา</th><th>หมวดหมู่</th><th>เงินต้น</th><th>ตัวคูณ</th><th>สถานะ</th><th>กำไร / ขาดทุน</th><th>บันทึก</th><th>จัดการ</th></tr></thead><tbody id="historyBody"></tbody></table>
+      <div id="emptyState" class="text-center py-12 px-4"><div class="text-3xl mb-3">⌁</div><p class="font-semibold text-slate-300">ยังไม่มีรายการธุรกรรม</p><p class="text-sm muted mt-1">เพิ่มรายการแรกจากฟอร์มด้านบน หรือโหลดข้อมูลตัวอย่าง</p></div>
+    </div>
+    <div class="p-4 border-t border-slate-800 flex flex-col sm:flex-row gap-2 justify-between items-start sm:items-center">
+      <p class="text-xs muted">ข้อมูลเก็บอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น</p>
+      <div class="flex gap-2"><button id="exportBtn" class="btn btn-secondary text-sm">ส่งออก CSV</button><button id="clearBtn" class="btn btn-secondary text-sm">ลบข้อมูลทั้งหมด</button></div>
+    </div>
+  </section>
+
+  <footer class="text-xs text-slate-500 mt-5 leading-relaxed">
+    <p><strong class="text-slate-400">สูตร PnL:</strong> รับคืนเต็มจำนวน = เงินต้น × (ตัวคูณ − 1); รับคืนครึ่งหนึ่ง = กำไรจากสูตรดังกล่าว ÷ 2; เสมอ/คืนทุน = 0; สูญเสียครึ่งหนึ่ง = −เงินต้น × 50%; สูญเสียเต็มจำนวน = −เงินต้น</p>
+    <p class="mt-1">เครื่องมือนี้เป็นตัวติดตามข้อมูล ไม่ใช่คำแนะนำการลงทุน และไม่ได้เชื่อมต่อบัญชีการเงินจริง ควรสำรองข้อมูล CSV หากต้องการเก็บไว้ระยะยาว</p>
+  </footer>
+</div>
+
+<script>
+const STORAGE_KEY = 'fintrack_transactions_v1';
+const $ = id => document.getElementById(id);
+const money = n => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n)||0);
+const number = n => new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(Number(n)||0);
+const outcomeLabels = {'full-win':'รับคืนเต็มจำนวน','half-win':'รับคืนครึ่งหนึ่ง','break-even':'เสมอ / คืนทุน','half-loss':'สูญเสียครึ่งหนึ่ง','full-loss':'สูญเสียเต็มจำนวน'};
+let transactions = loadTransactions();
+let editingId = null;
+let charts = {};
+
+function loadTransactions(){ try { const x=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]'); return Array.isArray(x)?x:[]; } catch(e){ return []; } }
+function persist(){ try { localStorage.setItem(STORAGE_KEY,JSON.stringify(transactions)); } catch(e){ alert('บันทึก LocalStorage ไม่สำเร็จ พื้นที่จัดเก็บอาจเต็ม'); } }
+function calcPnl(capital,multiplier,outcome){
+  const c=Number(capital)||0, m=Number(multiplier)||0;
+  switch(outcome){case 'full-win':return c*(m-1);case 'half-win':return c*(m-1)/2;case 'break-even':return 0;case 'half-loss':return -c*0.5;case 'full-loss':return -c;default:return 0;}
+}
+function getFormPnl(){return calcPnl($('capital').value,$('multiplier').value,$('outcome').value);}
+function updatePreview(){ $('pnlPreview').value=money(getFormPnl()); $('pnlPreview').className='field opacity-80 '+(getFormPnl()>0?'positive':getFormPnl()<0?'negative':'neutral'); }
+['capital','multiplier','outcome'].forEach(id=>$(id).addEventListener('input',updatePreview));
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function statusFor(t){return t.pnl>0?'profit':t.pnl<0?'loss':'flat';}
+function statusPill(t){const s=statusFor(t);return `<span class="pill ${s==='profit'?'pill-gain':s==='loss'?'pill-loss':'pill-flat'}">${s==='profit'?'กำไร':s==='loss'?'ขาดทุน':'คืนทุน'}</span>`;}
+function sortedTransactions(){return [...transactions].sort((a,b)=>new Date(a.date)-new Date(b.date));}
+function render(){
+  renderKpis(); renderTable(); renderCharts();
+}
+function renderKpis(){
+  const cap=transactions.reduce((s,t)=>s+Number(t.capital),0);
+  const pnl=transactions.reduce((s,t)=>s+Number(t.pnl),0);
+  const wins=transactions.filter(t=>t.pnl>0).length, losses=transactions.filter(t=>t.pnl<0).length, flats=transactions.filter(t=>t.pnl===0).length;
+  const grossProfit=transactions.reduce((s,t)=>s+Math.max(0,t.pnl),0);
+  const grossLoss=transactions.reduce((s,t)=>s+Math.max(0,-t.pnl),0);
+  $('kpiCapital').textContent=money(cap);
+  $('kpiPnl').textContent=(pnl>0?'+':'')+money(pnl); $('kpiPnl').className='kpi-value '+(pnl>0?'positive':pnl<0?'negative':'neutral');
+  const roi=cap?pnl/cap*100:0; $('kpiRoi').textContent=`ROI ${roi>=0?'+':''}${roi.toFixed(2)}%`;
+  $('kpiWin').textContent=`${(wins+losses?wins/(wins+losses)*100:0).toFixed(1)}%`;
+  $('kpiRecord').textContent=`ชนะ ${wins} · แพ้ ${losses} · เสมอ ${flats}`;
+  $('kpiPF').textContent=grossLoss? (grossProfit/grossLoss).toFixed(2):grossProfit?'∞':'—';
+  const ordered=sortedTransactions(); let streak=0, sign=0;
+  for(let i=ordered.length-1;i>=0;i--){const s=Math.sign(ordered[i].pnl);if(s===0)continue;if(sign===0)sign=s;if(s!==sign)break;streak++;}
+  $('kpiStreak').textContent=streak?`${sign>0?'+':'−'}${streak}`:'0';
+  $('kpiStreak').className='kpi-value '+(sign>0?'positive':sign<0?'negative':'neutral');
+  $('kpiStreakLabel').textContent=streak?(sign>0?'รายการกำไรติดต่อกัน':'รายการขาดทุนติดต่อกัน'):'ไม่มีสถิติต่อเนื่อง';
+}
+function renderTable(){
+  const q=$('searchInput').value.trim().toLowerCase(), filter=$('filterOutcome').value;
+  const rows=[...transactions].sort((a,b)=>new Date(b.date)-new Date(a.date)).filter(t=>{
+    const matchText=[t.category,t.notes,outcomeLabels[t.outcome]].join(' ').toLowerCase().includes(q);
+    const s=statusFor(t); return matchText&&(filter==='all'||filter===s);
+  });
+  $('rowCount').textContent=`แสดง ${rows.length} จาก ${transactions.length} รายการ`;
+  $('emptyState').style.display=rows.length?'none':'block';
+  $('historyBody').innerHTML=rows.map(t=>`<tr>
+    <td class="whitespace-nowrap">${escapeHtml(new Date(t.date).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'}))}</td>
+    <td><span class="font-semibold">${escapeHtml(t.category)}</span></td>
+    <td class="whitespace-nowrap">${money(t.capital)}</td><td>${number(t.multiplier)}×</td>
+    <td>${statusPill(t)}<div class="text-[11px] muted mt-1">${escapeHtml(outcomeLabels[t.outcome]||'')}</div></td>
+    <td class="whitespace-nowrap font-bold ${t.pnl>0?'positive':t.pnl<0?'negative':'neutral'}">${t.pnl>0?'+':''}${money(t.pnl)}</td>
+    <td class="max-w-[220px]"><div class="truncate" title="${escapeHtml(t.notes)}">${escapeHtml(t.notes||'—')}</div></td>
+    <td class="whitespace-nowrap"><button class="text-blue-300 hover:text-blue-200 mr-3 font-semibold" data-edit="${escapeHtml(t.id)}">แก้ไข</button><button class="text-rose-300 hover:text-rose-200 font-semibold" data-delete="${escapeHtml(t.id)}">ลบ</button></td>
+  </tr>`).join('');
+}
+$('historyBody').addEventListener('click',e=>{
+  const edit=e.target.closest('[data-edit]'), del=e.target.closest('[data-delete]');
+  if(edit) startEdit(edit.dataset.edit);
+  if(del){const t=transactions.find(x=>x.id===del.dataset.delete);if(t&&confirm(`ต้องการลบรายการ "${t.category}" ใช่หรือไม่?`)){transactions=transactions.filter(x=>x.id!==t.id);persist();render();if(editingId===t.id)resetForm();}}
+});
+$('searchInput').addEventListener('input',renderTable); $('filterOutcome').addEventListener('change',renderTable);
+function resetForm(){
+  editingId=null; $('entryForm').reset(); $('date').value=toLocalInput(new Date()); $('multiplier').value='1.85';
+  $('formHeading').textContent='บันทึกรายการใหม่'; $('saveBtn').textContent='＋ เพิ่มรายการ'; $('cancelEdit').classList.add('hidden'); $('editBadge').classList.add('hidden'); updatePreview();
+}
+function toLocalInput(d){const pad=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;}
+function startEdit(id){
+  const t=transactions.find(x=>x.id===id);if(!t)return;editingId=id;
+  $('date').value=toLocalInput(new Date(t.date));$('category').value=t.category;$('capital').value=t.capital;$('multiplier').value=t.multiplier;$('outcome').value=t.outcome;$('notes').value=t.notes||'';
+  $('formHeading').textContent='แก้ไขรายการ';$('saveBtn').textContent='บันทึกการแก้ไข';$('cancelEdit').classList.remove('hidden');$('editBadge').classList.remove('hidden');updatePreview();$('entryForm').scrollIntoView({behavior:'smooth',block:'start'});
+}
+$('cancelEdit').addEventListener('click',resetForm);
+$('entryForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  const capital=Number($('capital').value), multiplier=Number($('multiplier').value), date=new Date($('date').value);
+  if(!Number.isFinite(capital)||capital<=0||!Number.isFinite(multiplier)||multiplier<0||Number.isNaN(date.getTime())){alert('กรุณาตรวจสอบวันที่ เงินต้น และตัวคูณ');return;}
+  const item={id:editingId||`${Date.now()}_${Math.random().toString(36).slice(2,8)}`,date:date.toISOString(),category:$('category').value.trim(),capital,multiplier,outcome:$('outcome').value,pnl:calcPnl(capital,multiplier,$('outcome').value),notes:$('notes').value.trim()};
+  if(!item.category){alert('กรุณาระบุหมวดหมู่');return;}
+  if(editingId)transactions=transactions.map(t=>t.id===editingId?item:t);else transactions.push(item);
+  persist();resetForm();render();
+});
+function destroyChart(key){if(charts[key]){charts[key].destroy();delete charts[key];}}
+function baseOptions(){return {responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#cbd5e1',usePointStyle:true,boxWidth:8}},tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label||ctx.label}: ${money(ctx.parsed.y??ctx.parsed)}`}}},scales:{x:{ticks:{color:'#94a3b8',maxRotation:0,autoSkip:true},grid:{color:'#ffffff0a'}},y:{ticks:{color:'#94a3b8',callback:v=>'$'+number(v)},grid:{color:'#ffffff12'}}}};}
+function renderCharts(){
+  const ordered=sortedTransactions();
+  const equityLabels=['เริ่มต้น'], equityData=[0];let cumulative=0;
+  ordered.forEach(t=>{cumulative+=Number(t.pnl);equityLabels.push(new Date(t.date).toLocaleDateString('th-TH',{day:'2-digit',month:'short'}));equityData.push(Number(cumulative.toFixed(2)));});
+  destroyChart('equity');
+  charts.equity=new Chart($('equityChart'),{type:'line',data:{labels:equityLabels,datasets:[{label:'กำไร/ขาดทุนสะสม',data:equityData,borderColor:'#60a5fa',backgroundColor:'#3b82f622',fill:true,tension:.25,pointRadius:2,pointHoverRadius:5}]},options:{...baseOptions(),plugins:{...baseOptions().plugins,legend:{display:false}}}});
+  const daily={};ordered.forEach(t=>{const k=new Date(t.date).toLocaleDateString('th-TH',{year:'numeric',month:'short',day:'2-digit'});daily[k]=(daily[k]||0)+Number(t.pnl);});
+  const days=Object.keys(daily);destroyChart('daily');
+  charts.daily=new Chart($('dailyChart'),{type:'bar',data:{labels:days,datasets:[{label:'Daily PnL',data:days.map(k=>Number(daily[k].toFixed(2))),backgroundColor:days.map(k=>daily[k]>0?'#34d399cc':daily[k]<0?'#fb7185cc':'#fbbf24cc'),borderRadius:5}]},options:{...baseOptions(),plugins:{...baseOptions().plugins,legend:{display:false}}}});
+  const cats={};transactions.forEach(t=>cats[t.category]=(cats[t.category]||0)+Number(t.pnl));
+  destroyChart('category');
+  charts.category=new Chart($('categoryChart'),{type:'doughnut',data:{labels:Object.keys(cats),datasets:[{label:'Net PnL',data:Object.values(cats).map(v=>Math.abs(v)),backgroundColor:['#60a5fa','#34d399','#fbbf24','#fb7185','#a78bfa','#22d3ee','#f97316','#c084fc'],borderColor:'#111827',borderWidth:3,hoverOffset:7}]},options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'bottom',labels:{color:'#cbd5e1',padding:18,usePointStyle:true}},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${money(cats[ctx.label])} (ขนาด ${money(ctx.raw)})`}}}}});
+}
+$('demoBtn').addEventListener('click',()=>{
+  if(transactions.length&&!confirm('เพิ่มข้อมูลตัวอย่างต่อจากข้อมูลปัจจุบันใช่หรือไม่?'))return;
+  const samples=[
+    ['หมวด A',120,1.85,'full-win','ทดสอบกลยุทธ์ A',-6],['หมวด B',80,2.05,'full-win','จังหวะเข้าเร็ว',-5],
+    ['หมวด A',100,1.85,'half-win','ลดความเสี่ยง',-4],['หมวด C',90,.95,'full-loss','เงื่อนไขไม่เป็นไปตามแผน',-3],
+    ['หมวด D',75,1.9,'break-even','คืนทุนตามแผน',-2],['หมวด B',110,2.05,'full-win','สัญญาณยืนยัน',-1],['หมวด C',60,1.8,'half-loss','ปิดบางส่วน',0]
+  ];
+  samples.forEach(([category,capital,multiplier,outcome,notes,days])=>{const d=new Date();d.setDate(d.getDate()+days);d.setHours(10+Math.abs(days)%8,15,0,0);transactions.push({id:`demo_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,date:d.toISOString(),category,capital,multiplier,outcome,notes,pnl:calcPnl(capital,multiplier,outcome)});});
+  persist();render();
+});
+$('clearBtn').addEventListener('click',()=>{if(confirm('ลบธุรกรรมทั้งหมดออกจากเบราว์เซอร์ใช่หรือไม่? การกระทำนี้ย้อนกลับไม่ได้')){transactions=[];persist();resetForm();render();}});
+$('exportBtn').addEventListener('click',()=>{
+  if(!transactions.length){alert('ยังไม่มีข้อมูลให้ส่งออก');return;}
+  const headers=['Date','Category','Capital','Multiplier','Outcome','PnL','Notes'];
+  const csv=[headers,...transactions.map(t=>[t.date,t.category,t.capital,t.multiplier,outcomeLabels[t.outcome],t.pnl,t.notes||''])].map(row=>row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='fintrack-transactions.csv';a.click();URL.revokeObjectURL(url);
+});
+$('date').value=toLocalInput(new Date()); updatePreview(); render();
+</script>
+</body>
+</html>
